@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>DAT Browser</title>
+<style>
+html, body, .indent, .divider { background: #FBF5FF; font-family: sans-serif; font-size: 12pt; }
+a { color: #0066CC }
+table { border-collapse: collapse; margin: 3px; }
+td, th { background-color:#FFF; border: 1px solid black; padding: 4px;   white-space: nowrap }
+th { text-align: center; background-color: #eee }
+table.files th, table.files td { padding: 2px }
+table button { width: 20px; height: 20px; padding: 0 }
+.indent { padding: 0; padding-left: 20px; border: 0 }
+.diff td { background-color:#FF8 }
+</style>
+</head>
+
+<body>
+<h3>Pure DOS DAT Browser</h3>
+<form style="margin-bottom:20px">
+<input style="width:500px" id="qry">
+<button onclick="Find(); return false">Find</button>
+</form>
+
+<div id="res"></div>
+
+<script type="text/javascript">
+//--------------------------------------------//
+// dat-browser                                //
+// License: Public Domain (www.unlicense.org) //
+//--------------------------------------------//
+
+try
+{
+	var urlqry = DecodeQry(document.location.search.substr(2));
+	if (urlqry) Lookup(urlqry);
+}
+catch { }
+
+function Find()
+{
+	document.location.search = "/"+EncodeQry(document.getElementById("qry").value);
+}
+
+var inQuery, inDATId;
+function Lookup(str)
+{
+	var ranges = [<<<RANGES>>>];
+	var matches = str.match(/^(.+?)\/(.*)$/);
+	document.getElementById("qry").value = ((matches && matches[2]) || str);
+	inDATId = (matches && DecodeQry(matches[1]));
+	inQuery = ((matches && matches[2]) || str).toUpperCase();
+	var utf8Bytes = (new TextEncoder()).encode(inQuery.substr(0, 4));
+	var n = (utf8Bytes[3] || 0) + ((utf8Bytes[2] || 0) * 256) + ((utf8Bytes[1] || 0) * 65536) + ((utf8Bytes[0] || 0) * 16777216);
+	var range = 0;
+	for (var i = 0; i != ranges.length; i++)
+	{
+		if (n >= ranges[i] && n < (ranges[i + 1] || 9999999999))
+		{
+			range = ranges[i];
+			break;
+		}
+	}
+	var scr = document.createElement('script');
+	scr.src = 'dat_' + range + '.js';
+	scr.async = true;
+	document.documentElement.appendChild(scr);
+}
+
+function EncodeQry(str)
+{
+	return encodeURI(str).replace(/\+/g, "%2B").replace(/\#/g, "%23").replace(/%20/g, "+");
+}
+
+function DecodeQry(str)
+{
+	return decodeURIComponent(str.replace(/&amp;/g, "&").replace(/\+/g, " "));
+}
+
+function EscapeHTML(str)
+{
+	return str.replace(/[&<>"']/g, function(m) { switch (m) { case '&': return '&amp;'; case '<': return '&lt;'; case '>': return '&gt;'; case '"': return '&quot;'; case "'": return '&#39;'; } });
+}
+
+function Toggle(td)
+{
+	var style = td.parentElement.nextSibling.style;
+	style.display = (style.display.length ? "" : "none");
+	td.firstChild.innerText = (style.display.length ? "+" : "-");
+}
+
+function ExpandAll(on)
+{
+	for (var btns = document.getElementsByTagName("button"), i = 0; i != btns.length; i++)
+		if (btns[i].innerText == (on ? "+" : "-"))
+			Toggle(btns[i].parentElement);
+}
+
+document.OnDATData = function(data)
+{
+	var matches = [];
+	for (var i = 0; i != data.length; i++)
+	{
+		if (data[i][0].toUpperCase().indexOf(inQuery) != 0) continue;
+		if (inDATId)
+		{
+			var datids = data[i][1], gotid = 0;
+			for (var j = 0; j != datids.length; j++) { if (datids[j] == inDATId) { gotid = 1; break; } }
+			if (!gotid) continue;
+		}
+		matches[matches.length] = data[i];
+	}
+
+	var res = "", canexpand;
+	if (matches.length == 0)
+		res += "<div style=\"margin-bottom:20px\"><b>No match starting with '" + EscapeHTML(inQuery) + "'</b></div>";
+	else if (inQuery.length < 4 && matches[matches.length-1] == data[data.length-1])
+		res += "<div style=\"margin-bottom:20px\"><b>Search query '" + EscapeHTML(inQuery) + "' with less than 4 characters with incomplete results</b></div>";
+
+	for (var i = 0, hide, lasthide, topfiles; i != matches.length; lasthide = hide, i++)
+	{
+		var d = matches[i], name = d[0], datids = d[1], files = d[2], nameUp = name.toUpperCase();
+		var samegame = (i && nameUp == matches[i-1][0].toUpperCase());
+		var unfold = (nameUp == inQuery);
+		var trtdbtn = ((!inDATId || matches.length != 1) ? '<tr><td onclick="Toggle(this)"><button>' + (unfold ? '-' : '+') + '</button> ' : '<tr><td>');
+		hide = (unfold ? '' : ' style="display:none"');
+		if (!samegame)
+		{
+			var linkname = (inDATId || !unfold);
+			if (i) res += '</table></td></tr></table>';
+			res += '<table style="min-width:900px">' + trtdbtn + '<b>Name: </b>' + (linkname ? '<a href="?/' + EncodeQry(name) + '">' + EscapeHTML(name) + '</a>' : EscapeHTML(name)) + '</td></tr><tr' + hide + '><td colspan="2" class="indent"><table width="98%" style="margin-bottom:10px">';
+			topfiles = {};
+			if (!inDATId || matches.length != 1) canexpand = true;
+		}
+		res += trtdbtn + '<b>DAT Releases: </b>';
+		for (var j = 0; j != datids.length; j++)
+		{
+			if (inDATId == datids[j]) res += (j ? ', ' : '') + '<b>#' + datids[j] + '</b>';
+			else res += (j ? ', ' : '') + '<a href="?/' + EncodeQry(datids[j] + '/' + name) + '">' + datids[j] + '</a>';
+		}
+		res += ' (' + files.length + ' files)</td></tr><tr' + hide + '><td colspan="2" class="indent"><table class="files" width="98%"><tr><th>Name</th><th>Size</th><th>Date/Time</th><th>CRC32</th></tr>';
+		for (var j = 0; j != files.length; j++)
+		{
+			var f = files[j], fname = f[0], fsize = f[1], fyear = f[2], fmon = f[3], fday = f[4], fhour = f[5], fmin = f[6], fsec = f[7], fcrc = f[8];
+			var line = '<td>' + fname + '</td><td>' + fsize + '</td><td>' + (fmon ? (new Date(Date.UTC(1900+fyear, fmon-1, fday, fhour, fmin, fsec))).toISOString().substr(0, 19).replace('T', ' ') : '&nbsp;') + '</td><td>' + fcrc + '</td></tr>';
+			if (!samegame) topfiles[line] = true;
+			res += ((samegame && !topfiles[line]) ? '<tr class="diff">' : '<tr>') + line;
+		}
+		res += '</table></td></tr>';
+	}
+	if (matches.length) res += '</table></td></tr></table>';
+
+	if (canexpand)
+		res += '<div style="margin-top:20px"><button style="margin:4px;" onclick="ExpandAll(1)">Expand All</button><button style="margin:4px" onclick="ExpandAll(0)">Collapse All</button></div>';
+	document.getElementById('res').innerHTML = res;
+};
+</script>
+</body>
+</html>
