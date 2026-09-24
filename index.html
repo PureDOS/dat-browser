@@ -43,14 +43,14 @@ function Find()
 	document.location.search = "/"+EncodeQry(document.getElementById("qry").value);
 }
 
-var inQuery, inDATId;
+var inQuery, inDATId, matches;
 function Lookup(str)
 {
 	var ranges = [<<<RANGES>>>];
-	var matches = str.match(/^(.+?)\/(.*)$/);
-	document.getElementById("qry").value = ((matches && matches[2]) || str);
-	inDATId = (matches && DecodeQry(matches[1]));
-	inQuery = ((matches && matches[2]) || str).toUpperCase();
+	var split = str.match(/^(.+?)\/(.*)$/);
+	document.getElementById("qry").value = ((split && split[2]) || str);
+	inDATId = (split && DecodeQry(split[1]));
+	inQuery = ((split && split[2]) || str).toUpperCase();
 	var utf8Bytes = (new TextEncoder()).encode(inQuery.substr(0, 4));
 	var n = (utf8Bytes[3] || 0) + ((utf8Bytes[2] || 0) * 256) + ((utf8Bytes[1] || 0) * 65536) + ((utf8Bytes[0] || 0) * 16777216);
 	var range = 0;
@@ -99,17 +99,17 @@ function ExpandAll(on)
 
 document.OnDATData = function(data)
 {
-	var matches = [];
-	for (var i = 0; i != data.length; i++)
+	matches = [];
+	for (const d of data)
 	{
-		if (data[i][0].toUpperCase().indexOf(inQuery) != 0) continue;
+		if (d[0].toUpperCase().indexOf(inQuery) != 0) continue;
 		if (inDATId)
 		{
-			var datids = data[i][1], gotid = 0;
-			for (var j = 0; j != datids.length; j++) { if (datids[j] == inDATId) { gotid = 1; break; } }
+			var datids = d[1], gotid = 0;
+			for (const datid of datids) { if (datid == inDATId) { gotid = 1; break; } }
 			if (!gotid) continue;
 		}
-		matches[matches.length] = data[i];
+		matches[matches.length] = d;
 	}
 
 	var res = "", canexpand;
@@ -140,21 +140,68 @@ document.OnDATData = function(data)
 			else res += (j ? ', ' : '') + '<a href="?/' + EncodeQry(datids[j] + '/' + name) + '">' + datids[j] + '</a>';
 		}
 		res += ' (' + files.length + ' files)</td></tr><tr' + hide + '><td colspan="2" class="indent"><table class="files" width="98%"><tr><th>Name</th><th>Size</th><th>Date/Time</th><th>CRC32</th></tr>';
-		for (var j = 0; j != files.length; j++)
+		for (const f of files)
 		{
-			var f = files[j], fname = f[0], fsize = f[1], fyear = f[2], fmon = f[3], fday = f[4], fhour = f[5], fmin = f[6], fsec = f[7], fcrc = f[8];
-			var line = '<td>' + fname + '</td><td>' + fsize + '</td><td>' + (fmon ? (new Date(Date.UTC(1900+fyear, fmon-1, fday, fhour, fmin, fsec))).toISOString().substr(0, 19).replace('T', ' ') : '&nbsp;') + '</td><td>' + fcrc + '</td></tr>';
+			const fname = f[0], fsize = f[1], fyear = f[2], fmon = f[3], fday = f[4], fhour = f[5], fmin = f[6], fsec = f[7], fcrc = f[8];
+			const line = '<td>' + fname + '</td><td>' + fsize + '</td><td>' + (fmon ? (new Date(Date.UTC(1900+fyear, fmon-1, fday, fhour, fmin, fsec))).toISOString().substr(0, 19).replace('T', ' ') : '&nbsp;') + '</td><td>' + fcrc + '</td></tr>';
 			if (!samegame) topfiles[line] = true;
 			res += ((samegame && !topfiles[line]) ? '<tr class="diff">' : '<tr>') + line;
 		}
 		res += '</table></td></tr>';
 	}
-	if (matches.length) res += '</table></td></tr></table>';
-
-	if (canexpand)
-		res += '<div style="margin-top:20px"><button style="margin:4px;" onclick="ExpandAll(1)">Expand All</button><button style="margin:4px" onclick="ExpandAll(0)">Collapse All</button></div>';
+	if (matches.length)
+	{
+		res += '</table></td></tr></table><div style="margin-top:20px">';
+		if (canexpand)
+			res += '<button style="vertical-align:top;margin:4px;" onclick="ExpandAll(1)">Expand All</button><button style="vertical-align:top;margin:4px" onclick="ExpandAll(0)">Collapse All</button>';
+		res += '<textarea id="taxml" cols="50" rows="1" onclick="this.rows = 5" placeholder="Paste XML &lt;rom&gt; tags here" style="margin:4px;font-size:9pt"></textarea><button onclick="MatchXML()" style="vertical-align:top;margin:4px">Match XML</button></div>';
+	}
 	document.getElementById('res').innerHTML = res;
 };
+
+function MatchXML()
+{
+	var cols = [ 'CFC', 'CCF', 'FCC', 'EEC', 'CEE', 'ECE', 'DEF', 'FED', 'EFD', 'DFE', 'EDF', 'FDE' ], ncol = 0, mcol = [];
+	var res = '<table style="min-width:900px"><tr><th>Name</th><th>Size</th><th>CRC32</th></tr>', m;
+	for (const xmlline of document.getElementById("taxml").value.split(/\n/))
+	{
+		if (m = xmlline.match(/<rom[^>]+>/))
+		{
+			var rom = m[0], matched = 0;
+			var mname = rom.match(/ name="(.*?)"/), xname = mname && mname[1];
+			var msize = rom.match(/ size="(.*?)"/), xsize = msize && msize[1];
+			var mcrc  = rom.match(/ crc="(.*?)"/),  xcrc  = mcrc && mcrc[1];
+			var mdata = rom.match(/ data="(.*?)"/), xdata = mdata && mdata[1];
+			res += '<tr><td>' + xname + '</td><td>' + xsize + '</td><td>' + xcrc + '</td></tr>';
+			res += '<tr><td colspan="3" class="indent"><table class="files" width="99%">';
+			if (xsize)
+				for (var i = 0, hide, lasthide, topfiles; i != matches.length; lasthide = hide, i++)
+				{
+					var d = matches[i], name = d[0], datids = d[1], files = d[2], nameUp = name.toUpperCase();
+					if (datids[datids.length-1] == 'PURE') continue;
+					for (const f of files)
+					{
+						if (xsize != f[1] || xcrc != f[8]) continue;
+						matched++;
+						res += '<tr><td style="background:#'+(mcol[d]||(mcol[d]=(cols[ncol++]||((0x444|((ncol*7549)&0xAAA)).toString(16)))))+'">Matched with ' + name + ' (';
+						for (var j = 0; j != datids.length; j++) res += (j ? ', ' : '') + '<a href="?/' + EncodeQry(datids[j] + '/' + name) + '">' + datids[j] + '</a>';
+						res += ')</td></tr>';
+						break;
+					}
+				}
+			if (!xsize)          res += '<tr><td>Directory or empty file</td></tr>';
+			else if (xdata)      res += '<tr><td>Can use data embedded in DAT</td></tr>';
+			else if (xsize <= 7) res += '<tr><td>Small file that can be generated by DoDAT</td></tr>';
+			else if (!matched)   res += '<tr><td style="color:red">No match found</td></tr>';
+			res += '</table></td></tr>';
+		}
+		else if (xmlline.match(/<\/game>/))
+			break;
+	}
+	res += '</table>';
+	document.getElementById('res').insertAdjacentHTML('beforeend', res);
+	window.scrollTo(0,999999999);
+}
 </script>
 </body>
 </html>
