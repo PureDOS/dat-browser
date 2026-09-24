@@ -40,6 +40,7 @@ our %dats = (
 	TDC21 => "http://www.totaldoscollection.org/nugnugnug/TDC_DAT_release_21.zip",
 	TDC22 => "http://www.totaldoscollection.org/nugnugnug/TDC_DAT_release_22.zip",
 	TDC23 => "http://www.totaldoscollection.org/nugnugnug/TDC_DAT_release_23.zip",
+	TDC24 => "http://www.totaldoscollection.org/nugnugnug/TDC_DAT_release_24.zip",
 
 	# The Good Old Days (wrong SHA1s fixed and missing files added by PureDOS)
 	TGOD => "https://github.com/PureDOS/dat-browser/releases/download/dats/tgod_floppy_images_pdfix.zip",
@@ -69,7 +70,10 @@ our %tdc_validtags = (
 our %digitoxin_ignoredirs = ( "Docs" => 1, "Flux" => 1, "Patch Disks" => 1, "TSN" => 1 );
 our $digitoxin_ignoregames = qr/^(NamingScheme|forensics)(\.txt|)$| - Docs$|\[Flux\]/;
 
-our %known_duplicates = ( "Willow (1988) (360K) [cp cr] [M]" => 1 );
+our %known_duplicates = (
+	"Willow (1988) (360K) [cp cr] [M]" => 1,
+	"Dark Designs I- Grelminar's Staff (1990)(Softdisk Publishing) [Role-Playing (RPG)]" => 1,
+);
 
 if ($cachedir) { mkdir($cachedir); }
 
@@ -127,7 +131,7 @@ foreach my $datid (sort keys %dats)
 						my $have = $gamedb{$ingame}->{$rel};
 						if (!$have) { $gamedb{$ingame}->{$rel} = $filars; last; }
 						if ($have eq $filars) { last; }
-						if (!$known_duplicates{$ingame}) { print "    [$datid] Duplicate game '$ingame'!\n"; }
+						if (!$known_duplicates{$ingame}) { die "    [$datid] Duplicate game '$ingame'!\n"; }
 						$ingame = $orgingame." (#".($duplnum++).")";
 					}
 					$ingame = 0;
@@ -246,8 +250,14 @@ foreach my $datid (sort keys %dats)
 					$ingame =~ s/\\/\//g;$ingame=~s/\&amp;/\&/g;$ingame=~s/\&\#(\d+);/pack("C",$1)/eg;$ingame=~s/\&lt;/</g;$ingame=~s/\&quot;/"/g;$ingame=~s/\&gt;/>/g;$ingame=~s/\&apos;/'/g;
 					#if (index($filars, "\x7F") != -1) { die "    [$datid] 7F byte in file list of '$ingame'\n\n$filars"; } # 7F is contained in non UTF-8 dats (before TDC14)
 					if (index($filars, "\xFF") != -1) { die "    [$datid] FF byte in file list of '$ingame'\n\n$filars"; }
-					if ($gamedb{$ingame}->{$datid}) { die "    [$datid] Duplicate game '$ingame'!\n"; }
-					$gamedb{$ingame}->{$datid} = $filars;
+					for (my ($orgingame, $duplnum, $have) = ($ingame, 2);;)
+					{
+						my $have = $gamedb{$ingame}->{$datid};
+						if (!$have) { $gamedb{$ingame}->{$datid} = $filars; last; }
+						if ($have eq $filars) { last; }
+						if (!$known_duplicates{$ingame}) { die "    [$datid] Duplicate game '$ingame'!\n"; }
+						$ingame = $orgingame." (#".($duplnum++).")";
+					}
 					$ingame = 0;
 				}
 				else { die "Unknown DOSCenter game line [$ln]\n"; }
