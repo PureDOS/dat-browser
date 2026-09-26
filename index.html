@@ -4,15 +4,18 @@
 <meta charset="utf-8">
 <title>DAT Browser</title>
 <style>
-html, body, .indent, .divider { background: #FBF5FF; font-family: sans-serif; font-size: 12pt; }
-a { color: #0066CC }
-table { border-collapse: collapse; margin: 3px; }
-td, th { background-color:#FFF; border: 1px solid black; padding: 4px;   white-space: nowrap }
-th { text-align: center; background-color: #eee }
+html, body, .indent, .divider { background: #FBF5FF; font-family: sans-serif; font-size: 12pt }
+a { color: #06C }
+table { border-collapse: collapse; margin: 3px }
+tr { background:#FFF }
+td, th { border: 1px solid black; padding: 4px;   white-space: nowrap }
+th { text-align: center; background: #eee }
 table.files th, table.files td { padding: 2px }
-table button { width: 20px; height: 20px; padding: 0 }
+td button { width: 20px; height: 20px; padding: 0 }
 .indent { padding: 0; padding-left: 20px; border: 0 }
-.diff td { background-color:#FF8 }
+.diff { background: #FF8 } 
+.btnbox { cursor: pointer; color: #06C; background: #def; width: 20px; text-align: center }
+.canfold, .btnbox { display: none }
 </style>
 </head>
 
@@ -25,6 +28,13 @@ table button { width: 20px; height: 20px; padding: 0 }
 
 <div id="res"></div>
 
+<div style="margin-top:16px">
+<span class="canfold"><button style="margin:4px" onclick="ExpandAll(1)">Expand All</button><button style="margin:4px" onclick="ExpandAll(0)">Collapse All</button></span>
+<span><span onclick="Toggle(this);this.remove()"><button style="margin:4px">&#8230;</button></span></span><span style="display:none">
+<textarea id="ta" cols="40" rows="1" onclick="this.rows=5" placeholder="Paste DAT XML or StoreDB file list here" style="vertical-align:top;margin:4px;font-size:9pt"></textarea><button onclick="AddToView()" style="margin:4px" title="Temporarily until page is changed">Add to View</button></div>
+</span>
+</div>
+
 <script type="text/javascript">
 //--------------------------------------------//
 // dat-browser                                //
@@ -33,7 +43,7 @@ table button { width: 20px; height: 20px; padding: 0 }
 
 try
 {
-	var urlqry = DecodeQry(document.location.search.substr(2));
+	let urlqry = DecodeQry(document.location.search.substr(2));
 	if (urlqry) Lookup(urlqry);
 }
 catch { }
@@ -43,12 +53,12 @@ function Find()
 	document.location.search = "/"+EncodeQry(document.getElementById("qry").value);
 }
 
-var inQuery, inDATId, matches;
+var inQuery, inDATId, matches = [], hashdic = {};
 function Lookup(str)
 {
 	var ranges = [<<<RANGES>>>];
 	var split = str.match(/^(.+?)\/(.*)$/);
-	document.getElementById("qry").value = ((split && split[2]) || str);
+	document.title += " - " + (document.getElementById("qry").value = ((split && split[2]) || str));
 	inDATId = (split && DecodeQry(split[1]));
 	inQuery = ((split && split[2]) || str).toUpperCase();
 	var utf8Bytes = (new TextEncoder()).encode(inQuery.substr(0, 4));
@@ -92,58 +102,61 @@ function Toggle(td)
 
 function ExpandAll(on)
 {
-	for (var btns = document.getElementsByTagName("button"), i = 0; i != btns.length; i++)
-		if (btns[i].innerText == (on ? "+" : "-"))
-			Toggle(btns[i].parentElement);
+	for (let btn of document.getElementsByTagName("button"))
+		if (btn.innerText == (on ? "+" : "-"))
+			Toggle(btn.parentElement);
+}
+
+function SetButtons(i, istmp)
+{
+	return (istmp ? '<td class="btnbox" onclick="Rename('+i+',this)" title="Click to rename">&#x2711;</td>' : '')+'<td class="btnbox" onclick="Export('+i+')" title="Click to copy as XML DAT">&#x2343;</td><td class="btnbox" onclick="Match('+i+')" title="Click to find similarities">&#8776;</td><td class="btnbox" onclick="Remove('+i+')" title="Click to remove from view">&#215;</td>'
 }
 
 document.OnDATData = function(data)
 {
-	matches = [];
 	for (const d of data)
 	{
 		if (d[0].toUpperCase().indexOf(inQuery) != 0) continue;
 		if (inDATId)
 		{
-			var datids = d[1], gotid = 0;
+			let datids = d[1], gotid = 0;
 			for (const datid of datids) { if (datid == inDATId) { gotid = 1; break; } }
 			if (!gotid) continue;
 		}
-		matches[matches.length] = d;
+		matches.push(d);
 	}
 
-	var res = "", canexpand;
+	var res = "";
 	if (matches.length == 0)
 		res += "<div style=\"margin-bottom:20px\"><b>No match starting with '" + EscapeHTML(inQuery) + "'</b></div>";
 	else if (inQuery.length < 4 && matches[matches.length-1] == data[data.length-1])
 		res += "<div style=\"margin-bottom:20px\"><b>Search query '" + EscapeHTML(inQuery) + "' with less than 4 characters with incomplete results</b></div>";
 
-	for (var i = 0, hide, lasthide, topfiles; i != matches.length; lasthide = hide, i++)
+	for (let i = 0, hide, lasthide, topfiles; i != matches.length; lasthide = hide, i++)
 	{
-		var d = matches[i], name = d[0], datids = d[1], files = d[2], nameUp = name.toUpperCase();
-		var samegame = (i && nameUp == matches[i-1][0].toUpperCase());
-		var unfold = (nameUp == inQuery);
-		var trtdbtn = ((!inDATId || matches.length != 1) ? '<tr><td onclick="Toggle(this)"><button>' + (unfold ? '-' : '+') + '</button> ' : '<tr><td>');
+		let d = matches[i], name = d[0], datids = d[1], files = d[2], nameUp = name.toUpperCase();
+		let samegame = (i && nameUp == matches[i-1][0].toUpperCase());
+		let unfold = (nameUp == inQuery);
+		let trtdbtn = '<tr><td onclick="Toggle(this)"><button class="canfold">' + (unfold ? '-' : '+') + '</button> ';
 		hide = (unfold ? '' : ' style="display:none"');
 		if (!samegame)
 		{
-			var linkname = (inDATId || !unfold);
+			let linkname = (inDATId || !unfold);
 			if (i) res += '</table></td></tr></table>';
-			res += '<table style="min-width:900px">' + trtdbtn + '<b>Name: </b>' + (linkname ? '<a href="?/' + EncodeQry(name) + '">' + EscapeHTML(name) + '</a>' : EscapeHTML(name)) + '</td></tr><tr' + hide + '><td colspan="2" class="indent"><table width="98%" style="margin-bottom:10px">';
+			res += '<table style="min-width:900px">' + trtdbtn + '<b>Name: </b>' + (linkname ? '<a href="?/' + EncodeQry(name) + '">' + EscapeHTML(name) + '</a>' : EscapeHTML(name)) + '</td></tr><tr' + hide + '><td class="indent"><table width="98%" style="margin-bottom:10px">';
 			topfiles = {};
-			if (!inDATId || matches.length != 1) canexpand = true;
 		}
 		res += trtdbtn + '<b>DAT Releases: </b>';
-		for (var j = 0; j != datids.length; j++)
+		for (let j = 0; j != datids.length; j++)
 		{
 			if (inDATId == datids[j]) res += (j ? ', ' : '') + '<b>#' + datids[j] + '</b>';
 			else res += (j ? ', ' : '') + '<a href="?/' + EncodeQry(datids[j] + '/' + name) + '">' + datids[j] + '</a>';
 		}
-		res += ' (' + files.length + ' files)</td></tr><tr' + hide + '><td colspan="2" class="indent"><table class="files" width="98%"><tr><th>Name</th><th>Size</th><th>Date/Time</th><th>CRC32</th></tr>';
+		res += ' (' + files.length + ' files)</td>' + SetButtons(i) + '</tr><tr' + hide + '><td class="indent" colspan="4"><table class="files" width="98%" i='+i+'><tr><th>Name</th><th>Size</th><th>CRC32</th><th>Date/Time</th></tr>';
 		for (const f of files)
 		{
 			const fname = f[0], fsize = f[1], fyear = f[2], fmon = f[3], fday = f[4], fhour = f[5], fmin = f[6], fsec = f[7], fcrc = f[8];
-			const line = '<td>' + fname + '</td><td>' + fsize + '</td><td>' + (fmon ? (new Date(Date.UTC(1900+fyear, fmon-1, fday, fhour, fmin, fsec))).toISOString().substr(0, 19).replace('T', ' ') : '&nbsp;') + '</td><td>' + fcrc + '</td></tr>';
+			const line = '<td>' + fname + '</td><td>' + fsize + '</td><td>' + fcrc + '</td><td>' + (fmon ? (new Date(Date.UTC(1900+fyear, fmon-1, fday, fhour, fmin, fsec))).toISOString().substr(0, 19).replace('T', ' ') : '&nbsp;') + '</td></tr>';
 			if (!samegame) topfiles[line] = true;
 			res += ((samegame && !topfiles[line]) ? '<tr class="diff">' : '<tr>') + line;
 		}
@@ -151,56 +164,165 @@ document.OnDATData = function(data)
 	}
 	if (matches.length)
 	{
-		res += '</table></td></tr></table><div style="margin-top:20px">';
-		if (canexpand)
-			res += '<button style="vertical-align:top;margin:4px;" onclick="ExpandAll(1)">Expand All</button><button style="vertical-align:top;margin:4px" onclick="ExpandAll(0)">Collapse All</button>';
-		res += '<textarea id="taxml" cols="50" rows="1" onclick="this.rows = 5" placeholder="Paste XML &lt;rom&gt; tags here" style="margin:4px;font-size:9pt"></textarea><button onclick="MatchXML()" style="vertical-align:top;margin:4px">Match XML</button></div>';
+		res += '</table></td></tr></table>';
+		if (!inDATId || matches.length != 1) document.querySelector("style").innerHTML = document.querySelector("style").innerHTML.replace('display: none', '')
 	}
 	document.getElementById('res').innerHTML = res;
 };
 
-function MatchXML()
+function AddToView()
 {
-	var cols = [ 'CFC', 'CCF', 'FCC', 'EEC', 'CEE', 'ECE', 'DEF', 'FED', 'EFD', 'DFE', 'EDF', 'FDE' ], ncol = 0, mcol = [];
-	var res = '<table style="min-width:900px"><tr><th>Name</th><th>Size</th><th>CRC32</th></tr>', m;
-	for (const xmlline of document.getElementById("taxml").value.split(/\n/))
+	var ingame, matchi, lastgame = -1, res = '', files;
+	function Proc(name, size, crc, md5, sha1, tsha, date, embdata)
 	{
-		if (m = xmlline.match(/<rom[^>]+>/))
+		if (ingame != lastgame)
 		{
-			var rom = m[0], matched = 0;
-			var mname = rom.match(/ name="(.*?)"/), xname = mname && mname[1];
-			var msize = rom.match(/ size="(.*?)"/), xsize = msize && msize[1];
-			var mcrc  = rom.match(/ crc="(.*?)"/),  xcrc  = mcrc && mcrc[1];
-			var mdata = rom.match(/ data="(.*?)"/), xdata = mdata && mdata[1];
-			res += '<tr><td>' + xname + '</td><td>' + xsize + '</td><td>' + xcrc + '</td></tr>';
-			res += '<tr><td colspan="3" class="indent"><table class="files" width="99%">';
-			if (xsize)
-				for (var i = 0, hide, lasthide, topfiles; i != matches.length; lasthide = hide, i++)
-				{
-					var d = matches[i], name = d[0], datids = d[1], files = d[2], nameUp = name.toUpperCase();
-					if (datids[datids.length-1] == 'PURE') continue;
-					for (const f of files)
-					{
-						if (xsize != f[1] || xcrc != f[8]) continue;
-						matched++;
-						res += '<tr><td style="background:#'+(mcol[d]||(mcol[d]=(cols[ncol++]||((0x444|((ncol*7549)&0xAAA)).toString(16)))))+'">Matched with ' + name + ' (';
-						for (var j = 0; j != datids.length; j++) res += (j ? ', ' : '') + '<a href="?/' + EncodeQry(datids[j] + '/' + name) + '">' + datids[j] + '</a>';
-						res += ')</td></tr>';
-						break;
-					}
-				}
-			if (!xsize)          res += '<tr><td>Directory or empty file</td></tr>';
-			else if (xdata)      res += '<tr><td>Can use data embedded in DAT</td></tr>';
-			else if (xsize <= 7) res += '<tr><td>Small file that can be generated by DoDAT</td></tr>';
-			else if (!matched)   res += '<tr><td style="color:red">No match found</td></tr>';
-			res += '</table></td></tr>';
+			if (lastgame != -1) res += '</table></td></tr></table>';
+			const i = matches.push([ (lastgame = (ingame || (ingame = "StoreDB"))), [], (files = []) ]) - 1;
+			res += '<table style="min-width:900px"><tr><td onclick="Toggle(this)"><button>-</button> <b>Name: </b>' + EscapeHTML(ingame) + '</td>' + SetButtons(i, true) + '</tr><tr><td colspan="5" class="indent"><table class="files" width="98%" i='+i+' style="margin-bottom:10px"><tr><th>Name</th><th>Size</th>'+(crc?'<th>CRC32</th>':'')+(md5?'<th>MD5</th>':'')+((sha1||tsha)?'<th>SHA1</th>':'')+(date?'<th>Date/Time</th>':'')+'</tr>';
 		}
-		else if (xmlline.match(/<\/game>/))
-			break;
+		res += `<tr${embdata?' title="Data embedded in DAT"':''}><td>${name}</td><td>${size}${embdata?'*':''}</td>${crc?`<td>${crc}</td>`:''}${md5?`<td>${md5}</td>`:''}${sha1||tsha?`<td>${sha1||tsha}</td>`:''}${date?`<td>${date}</td>`:''}</tr>`;
+		if (crc && crc.length != 8) crc = null; if (md5 && md5.length != 32) md5 = null; if (sha1 && sha1.length != 40) sha1 = null; if (tsha && tsha.length != 23) tsha = null;
+		if (sha1) tsha = sha1.substr(0, 10)+"***"+sha1.substr(30, 10);
+		if (sha1 && md5 && crc) { let ss = "|"+size; hashdic[(hashdic[(hashdic[(hashdic[crc+ss] = md5)+ss] = tsha)+ss] = sha1)+ss] = crc; }
+		let fyear, fmon, fday, fhour, fmin, fsec;
+		if (date) { let d = new Date(date); fyear = d.getYear(), fmon = d.getMonth()+1, fday = d.getDate(), fhour = d.getHours(), fmin = d.getMinutes(), fsec = d.getSeconds(); }
+		files.push([ name, size|0, fyear, fmon, fday, fhour, fmin, fsec, crc, md5, sha1, tsha, embdata ]);
 	}
-	res += '</table>';
-	document.getElementById('res').insertAdjacentHTML('beforeend', res);
-	window.scrollTo(0,999999999);
+
+	let db = document.getElementById("ta").value;
+	if (db.indexOf('***') > 0 && db.match(/\*\*\*[0-9a-f]{10}\s/)) // file/truncatedsha1/size triplets
+		for (const m of db.matchAll(/(\S[\S ]*?)\s+([0-9a-fA-F]{10}\*\*\*[0-9a-fA-F]{10})\s+(\d+)/g))
+			Proc(m[1], m[3], null, null, null, m[2]);
+	if (db.indexOf('"depot"') > 0) // json depots object
+		{try{for (const i of JSON.parse(db).depot.items)
+		{
+			if (i.chunks.length == 1) Proc(i.path, i.chunks[0].size, null, i.chunks[0].md5);
+			else { let sz = 0; for (const c of i.chunks) sz += c.size; Proc(i.path, sz, null, i.md5); }
+		}}catch{}}
+	if (db.indexOf('<rom') >= 0) // xml tags
+	{
+		let dbcrc = db.match(/ crc="\w{8}"/), dbmd5 = db.match(/ md5="\w{32}"/), dbsha1 = db.match(/ sha1="\w{40}"/);
+		for (const x of db.matchAll(/<([\/\w]+)([^>]*)>/g))
+		{
+			let tag = x[1], prm = x[2], m;
+			if (tag == "rom") Proc((m=prm.match(/ name="(.*?)"/)) && m[1], (m=prm.match(/ size="(.*?)"/)) && m[1], dbcrc && (m=prm.match(/ crc="(.*?)"/)) && m[1], dbmd5 && (m=prm.match(/ md5="(.*?)"/)) && m[1], dbsha1 && (m=prm.match(/ sha1="(.*?)"/)) && m[1], null, (m=prm.match(/ date="(.*?)"/)) && m[1], (m=prm.match(/ data="(.*?)"/)) && m[1]);
+			else if (tag == "game" || tag == "/game") ingame = (m=prm.match(/ name="(.*?)"/)) && m[1];
+		}
+	}
+
+	if (lastgame == -1) return;
+	document.getElementById('res').insertAdjacentHTML('beforeend', res + '</table></td></tr></table>');
+	document.querySelector("style").innerHTML = document.querySelector("style").innerHTML.replace('display: none', '')
+}
+
+function Rename(i, td)
+{
+	let oldname = matches[i][0], newname = prompt("Set Name", oldname);
+	if (!newname) return;
+	td.previousSibling.innerHTML = td.previousSibling.innerHTML.replace('>' + EscapeHTML(oldname), '>' + EscapeHTML(newname))
+	matches[i][0] = newname;
+}
+
+function Export(i)
+{
+	let d = matches[i], name = d[0], files = d[2], escname = EscapeHTML(name), xml = '';
+	xml += `\t<game name="${escname}">\n\t\t<description>${escname}</description>\n`;
+	for (const f of files)
+	{
+		let name = f[0], size = f[1], fyear = f[2], fmon = f[3], fday = f[4], fhour = f[5], fmin = f[6], fsec = f[7], crc = f[8], md5 = f[9], sha1 = f[10], tsha = f[11], embdata = f[12], ss = "|"+size;
+		if      (!crc && md5)  (tsha = hashdic[md5+ss]) && (sha1 = hashdic[tsha+ss]) && (crc = hashdic[sha1+ss]);
+		else if (!crc && tsha) (sha1 = hashdic[tsha+ss]) && (crc = hashdic[sha1+ss]) && (md5 = hashdic[crc+ss]);
+		else if (!crc && sha1) (crc = hashdic[sha1+ss]) && (md5 = hashdic[crc+ss]) && (tsha = hashdic[md5+ss]);
+		else if (crc && !sha1) (md5 = hashdic[crc+ss]) && (tsha = hashdic[md5+ss]) && (sha1 = hashdic[tsha+ss]);
+		xml += `\t\t<rom name="${name}" size="${size}" crc="${crc||'???'}" md5="${md5||'???'}" sha1="${sha1||tsha||'???'}"${fmon ? ` date="${(new Date(Date.UTC(1900+fyear, fmon-1, fday, fhour, fmin, fsec))).toISOString().substr(0, 19).replace('T', ' ')}"` : ''}${embdata ? ` data="${embdata}"` : ''}/>\n`;
+	}
+	xml += '\t</game>\n';
+	try { navigator.clipboard.write([new ClipboardItem({['text/plain']:xml})]); alert("Copied XML DAT to clipboard"); } catch {}
+}
+
+function Match(matchi)
+{
+	if (document.getElementById('res').childElementCount <= 1) { alert('Nothing to match against'); return; }
+	var has = {}, hascrc, hasmd5, hassha1, hastsha, matchd = matches[matchi], matchfiles = matchd[2], matchnum = matchfiles.length, dups = new Array(matchnum), match = new Array(matchnum);
+	for (let j = 0; j != matchnum; j++)
+	{
+		let f = matchfiles[j], size = f[1], crc = f[8], md5 = f[9], sha1 = f[10], tsha = f[11], ss = "|"+size, h;
+		if      (!crc && md5 ) (tsha = hashdic[md5 +ss]) && (sha1 = hashdic[tsha+ss]) && (crc  = hashdic[sha1+ss]);
+		else if (!crc && tsha) (sha1 = hashdic[tsha+ss]) && (crc  = hashdic[sha1+ss]) && (md5  = hashdic[crc +ss]);
+		else if (!crc && sha1) (crc  = hashdic[sha1+ss]) && (md5  = hashdic[crc +ss]) && (tsha = hashdic[md5 +ss]);
+		else if (crc && !sha1) (md5  = hashdic[crc +ss]) && (tsha = hashdic[md5 +ss]) && (sha1 = hashdic[tsha+ss]);
+		if (crc)  { hascrc  = true; if (h = has[crc+ss] ) dups[j] = h; else has[crc+ss]  = j+1; }
+		if (md5)  { hasmd5  = true; if (h = has[md5+ss] ) dups[j] = h; else has[md5+ss]  = j+1; }
+		if (sha1) { hassha1 = true; if (h = has[sha1+ss]) dups[j] = h; else has[sha1+ss] = j+1; }
+		if (tsha) { hastsha = true; if (h = has[tsha+ss]) dups[j] = h; else has[tsha+ss] = j+1; }
+	}
+
+	ExpandAll(1);
+	for (let i = 0; i != matches.length; i++)
+	{
+		let d = matches[i];
+		if (!d) continue; // was removed from view
+		let tr = (d[3] || (d[3] = document.querySelector('.files[i="'+i+'"]').firstChild.firstChild)), miss = 0, got = 0, log = '';
+		let files = d[2], ff = files[0], canmatch = (ff[8]&&hascrc)||(ff[9]&&hasmd5)||(ff[10]&&hassha1)||(ff[11]&&hastsha), skip = (!canmatch || i == matchi);
+		for (const f of files)
+		{
+			tr = tr.nextElementSibling;
+			if (skip) { tr.style.background = tr.title = ''; continue; }
+			let name = f[0], size = f[1], crc = f[8], md5 = f[9], sha1 = f[10], tsha = f[11], ss = "|"+size, h;
+			if (h = ((sha1 && has[sha1+ss]) || (tsha && has[tsha+ss]) || (md5 && has[md5+ss]) || (crc && has[crc+ss])))
+				match[--h] = i, got++, tr.style.background = '#DF8', tr.title = "Matches '"+matchfiles[h][0]+"'";
+			else
+				tr.style.background = (size ? '#FA8' : ''), tr.title = 'Unused';
+		}
+		for (let j = (!skip? 0 : matchnum); j != matchnum; j++)
+		{
+			if (match[j] == i) continue;
+			const f = matchfiles[j], name = f[0], size = f[1], embdata = f[12];
+			if      (embdata)   { log += `Data embedded in DAT for '${name}' of size ${size} (otherwise no match)\n`; }
+			else if (!size)     { } // Directory or empty file
+			else if (size <= 7) { log += `DoDAT can generate small file '${name}' of size ${size}\n`; }
+			else if (dups[j])   { } // Duplicated file
+			else                { log += `! Missing '${name}' of size ${size} with hash ${f[8]||f[9]||f[10]||f[11]}\n`; miss++; }
+		}
+		log += (!miss ? '*** ' : '') + `Matched ${matchnum - miss} out of ${matchnum} files`;
+		if (!canmatch) log = "!!! Unable to compare sets using different hash types";
+		let logtd = ((tr = tr.nextElementSibling) ? tr.firstChild : d[3].parentElement.appendChild(document.createElement('tr')).appendChild(document.createElement('td')));
+		logtd.colSpan = 99;
+		logtd.innerText = (i != matchi ? log : '');
+		if ((!got || miss > 5+matchnum/4) && i != matchi) Toggle(d[3].parentElement.parentElement.parentElement.parentElement.parentElement.firstChild.firstChild);
+	}
+
+	let tr = matchd[3], miss = 0;
+	for (let j = 0; j != matchnum; j++)
+	{
+		tr = tr.nextElementSibling;
+		let f = matchfiles[j], size = f[1], embdata = f[12], m = (match[j] != null);
+		if      (embdata)   { tr.style.background = '#FD8', tr.title = 'Data embedded in DAT'; }
+		else if (!size)     { tr.style.background = '#FD8', tr.title = 'Directory or empty file'; }
+		else if (size <= 7) { tr.style.background = '#FD8', tr.title = 'DoDAT can generate this small file'; }
+		else if (dups[j])   { tr.style.background = '#FD8', tr.title = "Duplicate of '"+matchfiles[dups[j]-1][0]+"'"; m = (match[dups[j]-1] != null); miss += !m; }
+		else                { tr.style.background = (m ? '#8F8' : '#F88'), tr.title = ''; miss += !m; }
+		tr.title += (tr.title ? ' - ' : '') + (m ? 'Available in other set(s)' : 'Not available in any other set');
+	}
+	tr.nextElementSibling.firstChild.innerText = (miss ? (miss != matchnum ? `Only ${matchnum - miss} out of` : 'None out of') : 'All') + ` ${matchnum} files reproducible via other set(s)`;
+
+	matchd[3].parentElement.parentElement.parentElement.parentElement.previousElementSibling.scrollIntoView();
+}
+
+function Remove(i)
+{
+	matches[i] = null;
+	let filetr = document.querySelector('.files[i="'+i+'"]').parentElement.parentElement;
+	if (filetr.parentElement.childElementCount == 2) // only one release
+	{
+		try { filetr.parentElement.parentElement.parentElement.parentElement.parentElement.parentElement.remove() } // remove game table
+		catch { filetr.parentElement.parentElement.remove() } // remove entry added to view
+		if (!document.getElementById('res').childElementCount) matches = [];
+		return;
+	}
+	filetr.previousElementSibling.remove();
+	filetr.remove();
 }
 </script>
 </body>
